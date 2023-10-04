@@ -7,6 +7,17 @@
 
 scriptencoding utf-8
 
+fun! s:process_lib_call(cmd, p1, p2)
+if g:is_wsl
+        if a:p1 == 'get'
+            return g:GetLanguage()
+        endif
+        return system([a:cmd, a:p1, a:p2]->join(' '))->trim()
+    else
+        return libcall(a:cmd, a:p1, a:p2)
+    endif
+endfunction
+
 if exists('g:loaded_XkbSwitch') && g:loaded_XkbSwitch
     finish
 endif
@@ -51,7 +62,9 @@ if !exists('g:XkbSwitchLib') && $XDG_SESSION_DESKTOP ==# 'gnome'
 endif
 
 if !exists('g:XkbSwitchLib')
-    if has('macunix')
+    if g:is_wsl
+        let g:XkbSwitchLib = g:XkbSwitchProgram
+    elseif has('macunix')
         call s:find_library('libxkbswitch-macosx', 'libxkbswitch.dylib')
     elseif has('unix')
         " do not load if there is no X11,
@@ -99,10 +112,17 @@ let s:XkbSwitchDict = {
             \  'get':     'Xkb_Switch_getXkbLayout',
             \  'set':     'Xkb_Switch_setXkbLayout',
             \  'local':   1},
+            \ 'wsl':
+            \ {'backend': g:XkbSwitchProgram,
+            \  'get':     'get',
+            \  'set':     'xkblang',
+            \  'local':   1},
             \ }
 
 if !exists('g:XkbSwitch')
-    if has('macunix')
+    if g:is_wsl
+        let g:XkbSwitch = s:XkbSwitchDict['wsl']
+    elseif has('macunix')
         let g:XkbSwitch = s:XkbSwitchDict['macunix']
     elseif has('unix')
         let g:XkbSwitch = s:XkbSwitchDict['unix']
@@ -586,7 +606,7 @@ fun! s:check_syntax_rules(force)
         endif
         if b:xkb_saved_cur_synid == role
             let cur_layout =
-                    \ libcall(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
+                    \ s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
             let b:xkb_saved_cur_layout[role] = cur_layout
             break
         endif
@@ -596,20 +616,20 @@ fun! s:check_syntax_rules(force)
             if index(b:xkb_syntax_out_roles, b:xkb_saved_cur_synid) == -1
                 if cur_layout == ''
                     let cur_layout =
-                    \ libcall(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
+                    \ s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
                 endif
                 let b:xkb_ilayout = cur_layout
             endif
             if exists('b:xkb_saved_cur_layout[role]')
                 if b:xkb_saved_cur_layout[role] != cur_layout
-                    call libcall(g:XkbSwitch['backend'], g:XkbSwitch['set'],
+                    call s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['set'],
                                 \ b:xkb_saved_cur_layout[role])
                     let switched = 1
                 endif
             else
                 if cur_layout == ''
                     let cur_layout =
-                    \ libcall(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
+                    \ s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
                 endif
                 let b:xkb_saved_cur_layout[role] = cur_layout
             endif
@@ -625,7 +645,7 @@ fun! s:check_syntax_rules(force)
             let ilayout = exists('b:xkb_ilayout') ? b:xkb_ilayout :
                         \ g:XkbSwitchILayout
             if ilayout != '' && ilayout != cur_layout
-                call libcall(g:XkbSwitch['backend'], g:XkbSwitch['set'],
+                call s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['set'],
                             \ ilayout)
             endif
             break
@@ -715,7 +735,7 @@ fun! s:xkb_switch(mode, ...)
     if s:XkbSwitchSaveILayout && !g:XkbSwitch['local'] && !s:XkbSwitchFocused
         return
     endif
-    let cur_layout = libcall(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
+    let cur_layout = s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
     if g:XkbSwitchRestoreGlobalLayout && empty(s:XkbSwitchGlobalLayout)
         let s:XkbSwitchGlobalLayout = cur_layout
     endif
@@ -728,7 +748,7 @@ fun! s:xkb_switch(mode, ...)
                     \ (exists('b:xkb_nlayout') ? b:xkb_nlayout : '')
         if nlayout != ''
             if cur_layout != nlayout
-                call libcall(g:XkbSwitch['backend'], g:XkbSwitch['set'],
+                call s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['set'],
                             \ nlayout)
             endif
         endif
@@ -801,7 +821,7 @@ fun! s:xkb_switch(mode, ...)
                 if cur_synid == role && exists('b:xkb_saved_cur_layout[role]')
                     if b:xkb_saved_cur_layout[role] != cur_layout
                         let switched = b:xkb_saved_cur_layout[role]
-                        call libcall(g:XkbSwitch['backend'],
+                        call s:process_lib_call(g:XkbSwitch['backend'],
                                     \ g:XkbSwitch['set'], switched)
                     endif
                     break
@@ -823,7 +843,7 @@ fun! s:xkb_switch(mode, ...)
                         let not_managed = 0
                         if switched != cur_layout &&
                                     \ !exists('b:xkb_ilayout_managed')
-                            call libcall(g:XkbSwitch['backend'],
+                            call s:process_lib_call(g:XkbSwitch['backend'],
                                         \ g:XkbSwitch['set'], switched)
                             let not_managed = 1
                         endif
@@ -866,7 +886,8 @@ fun! s:xkb_save(...)
     if !xkb_loaded
         return
     endif
-    let cur_layout = libcall(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
+
+    let cur_layout = s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
     if save_ilayout_param_local
         " FIXME: is there a way to find cursor position in the abandoned
         " buffer? If no then we cannot say what syntax role or 'xkb_layout'
@@ -888,9 +909,9 @@ fun! s:xkb_set(layout)
     if empty(a:layout)
         return
     endif
-    let cur_layout = libcall(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
+    let cur_layout = s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['get'], '')
     if cur_layout != a:layout
-        call libcall(g:XkbSwitch['backend'], g:XkbSwitch['set'], a:layout)
+        call s:process_lib_call(g:XkbSwitch['backend'], g:XkbSwitch['set'], a:layout)
     endif
 endfun
 
