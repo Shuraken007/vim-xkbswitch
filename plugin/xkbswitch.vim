@@ -11,8 +11,10 @@ fun! s:process_lib_call(cmd, p1, p2)
 if g:is_wsl
         if a:p1 == 'get'
             return g:GetLanguage()
+        elseif a:p1 == 'set'
+            call g:SetLanguage(a:p2)
+            return system([a:cmd, 'xkblang', a:p2]->join(' '))->trim()
         endif
-        return system([a:cmd, a:p1, a:p2]->join(' '))->trim()
     else
         return libcall(a:cmd, a:p1, a:p2)
     endif
@@ -115,7 +117,7 @@ let s:XkbSwitchDict = {
             \ 'wsl':
             \ {'backend': g:XkbSwitchProgram,
             \  'get':     'get',
-            \  'set':     'xkblang',
+            \  'set':     'set',
             \  'local':   1},
             \ }
 
